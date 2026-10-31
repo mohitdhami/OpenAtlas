@@ -65,6 +65,21 @@ npm run build:wasm
 
 The loader uses Vite's `BASE_URL`, so a build made with a matching base path can be deployed at a domain root or a subpath. No server configuration or API is required; the generated `dist/` directory can be served by any static host.
 
+## Deploy to GitHub Pages
+
+This branch includes a GitHub Actions workflow that builds the site with the correct project-page base path and publishes it to GitHub Pages.
+
+One-time setup:
+
+1. Open [Settings → Pages](https://github.com/mohitdhami/OpenAtlas/settings/pages).
+2. Under **Build and deployment**, set **Source** to **GitHub Actions**.
+
+After that, every push to `wasm` deploys automatically. You can also run the [Deploy GitHub Pages workflow](https://github.com/mohitdhami/OpenAtlas/actions/workflows/deploy-pages.yml) manually.
+
+Live URL: **https://mohitdhami.github.io/OpenAtlas/**
+
+The workflow derives the Vite `--base` path from the repository name, so the HTML, assets, favicon, and `wasm/catalog.wasm` all resolve under `/OpenAtlas/`.
+
 ## Project structure
 
 ```text
