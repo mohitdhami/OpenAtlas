@@ -26,7 +26,15 @@ import {
   X,
 } from "lucide-react";
 import { categories, categoryById, resources } from "./data";
+import {
+  filterCatalog,
+  type CatalogFilterInput,
+} from "./catalogFilter";
 import { CategoryIcon } from "./components/CategoryIcon";
+import {
+  loadCatalogEngine,
+  type CatalogEngine,
+} from "./wasm/catalogFilter";
 import type {
   Access,
   CategoryId,
@@ -38,6 +46,7 @@ import type {
 type KindFilter = "all" | Kind;
 type SortKey = "curated" | "newest" | "name" | "category";
 type Theme = "light" | "dark";
+type EngineBadge = "loading" | "wasm" | "fallback";
 
 const PAGE_SIZE = 24;
 const SAVED_KEY = "open-atlas-saved";
@@ -96,6 +105,26 @@ const sortOptions: { value: SortKey; label: string }[] = [
   { value: "name", label: "A–Z" },
   { value: "category", label: "Category" },
 ];
+
+const engineBadgeMeta: Record<
+  EngineBadge,
+  { label: string; title: string }
+> = {
+  loading: {
+    label: "WASM loading",
+    title: "Loading the local WebAssembly search core.",
+  },
+  wasm: {
+    label: "WASM search",
+    title:
+      "Search and filters run in WebAssembly inside this page. No query leaves your browser.",
+  },
+  fallback: {
+    label: "JS fallback",
+    title:
+      "The WebAssembly core is unavailable, so search is using the built-in JavaScript fallback. It still runs entirely in your browser.",
+  },
+};
 
 const DATASET_COUNT = resources.filter((item) => item.kind === "dataset").length;
 const MODEL_COUNT = resources.filter((item) => item.kind === "model").length;
@@ -495,6 +524,8 @@ export default function App() {
   const [mobileFilters, setMobileFilters] = useState(false);
   const [saved, setSaved] = useState<Set<string>>(readSaved);
   const [theme, setTheme] = useState<Theme>(readTheme);
+  const [engine, setEngine] = useState<CatalogEngine | null>(null);
+  const [engineLoadFailed, setEngineLoadFailed] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
   const returnFocusRef = useRef<HTMLElement | null>(null);
 
@@ -522,6 +553,27 @@ export default function App() {
     input.focus({ preventScroll: true });
     input.scrollIntoView({ behavior: "smooth", block: "center" });
   };
+
+  useEffect(() => {
+    let cancelled = false;
+
+    loadCatalogEngine()
+      .then((loaded) => {
+        if (!cancelled) setEngine(loaded);
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return;
+        console.warn(
+          "WASM search core unavailable; continuing with the JS fallback.",
+          error,
+        );
+        setEngineLoadFailed(true);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
@@ -649,40 +701,40 @@ export default function App() {
     scrollToCatalog();
   };
 
-  const filtered = useMemo(() => {
-    const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const filterInput = useMemo<CatalogFilterInput>(
+    () => ({
+      query,
+      kind,
+      category,
+      licenses: licenseFilters,
+      access,
+      savedOnly,
+      savedIds: saved,
+    }),
+    [query, kind, category, licenseFilters, access, savedOnly, saved],
+  );
 
-    const matches = resources.filter((resource) => {
-      if (kind !== "all" && resource.kind !== kind) return false;
-      if (category !== "all" && resource.category !== category) return false;
-      if (
-        licenseFilters.size > 0 &&
-        !licenseFilters.has(resource.licenseClass)
-      ) {
-        return false;
+  const applied = useMemo<{
+    matches: Resource[];
+    backend: "wasm" | "js";
+  }>(() => {
+    if (engine) {
+      try {
+        const matches = engine.filter(filterInput);
+        if (matches !== null) return { matches, backend: "wasm" };
+      } catch (error) {
+        console.warn(
+          "WASM search failed; continuing with the JS fallback.",
+          error,
+        );
       }
-      if (access !== "all" && resource.access !== access) return false;
-      if (savedOnly && !saved.has(resource.id)) return false;
-      if (words.length === 0) return true;
+    }
 
-      const haystack = [
-        resource.name,
-        resource.maker,
-        resource.summary,
-        resource.scale,
-        resource.license,
-        resource.year,
-        categoryById[resource.category].label,
-        ...resource.tags,
-        ...resource.bestFor,
-      ]
-        .join(" ")
-        .toLowerCase();
+    return { matches: filterCatalog(filterInput), backend: "js" };
+  }, [engine, filterInput]);
 
-      return words.every((word) => haystack.includes(word));
-    });
-
-    const sorted = [...matches];
+  const filtered = useMemo(() => {
+    const sorted = [...applied.matches];
     if (sort === "newest") {
       sorted.sort(
         (a, b) => b.year - a.year || a.name.localeCompare(b.name),
@@ -698,7 +750,16 @@ export default function App() {
     }
 
     return sorted;
-  }, [query, kind, category, licenseFilters, access, savedOnly, sort, saved]);
+  }, [applied, sort]);
+
+  const engineBadge: EngineBadge = engine
+    ? applied.backend === "wasm"
+      ? "wasm"
+      : "fallback"
+    : engineLoadFailed
+      ? "fallback"
+      : "loading";
+  const engineMeta = engineBadgeMeta[engineBadge];
 
   const visible = filtered.slice(0, visibleCount);
   const hasMore = visibleCount < filtered.length;
@@ -1151,13 +1212,23 @@ export default function App() {
 
             <div className="catalog-main">
               <div className="results-toolbar">
-                <p className="result-count" aria-live="polite">
-                  <span className="result-count__number">{filtered.length}</span>
-                  <span>{filtered.length === 1 ? "resource" : "resources"}</span>
-                  <span className="result-count__of">
-                    / {resources.length}
+                <div className="results-summary">
+                  <p className="result-count" aria-live="polite">
+                    <span className="result-count__number">{filtered.length}</span>
+                    <span>{filtered.length === 1 ? "resource" : "resources"}</span>
+                    <span className="result-count__of">
+                      / {resources.length}
+                    </span>
+                  </p>
+                  <span
+                    className={`engine-badge engine-badge--${engineBadge}`}
+                    title={engineMeta.title}
+                    aria-label={`Search engine: ${engineMeta.title}`}
+                  >
+                    <span className="engine-badge__dot" aria-hidden="true" />
+                    {engineMeta.label}
                   </span>
-                </p>
+                </div>
 
                 <div className="toolbar-controls">
                   <button
