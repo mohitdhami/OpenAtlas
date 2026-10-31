@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#f4f1e8" />
+    <meta
+      name="description"
+      content="Open Atlas is a hand-curated field guide to free public datasets and open-weight AI models across every major category."
+    />
+    <meta property="og:title" content="Open Atlas — The free AI resource field guide" />
+    <meta
+      property="og:description"
+      content="121 hand-picked datasets and open-weight models, with what each one is good for and how it is licensed."
+    />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary" />
+    <script>
+      (() => {
+        try {
+          const stored = localStorage.getItem("open-atlas-theme");
+          const theme =
+            stored === "light" || stored === "dark"
+              ? stored
+              : matchMedia("(prefers-color-scheme: dark)").matches
+                ? "dark"
+                : "light";
+          document.documentElement.dataset.theme = theme;
+          const meta = document.querySelector('meta[name="theme-color"]');
+          meta?.setAttribute(
+            "content",
+            theme === "dark" ? "#12130f" : "#f2efe5",
+          );
+        } catch {
+          // Fall back to the light theme.
+        }
+      })();
+    </script>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Instrument+Serif:ital@0;1&family=Manrope:wght@400;500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <title>Open Atlas — The free AI resource field guide</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
